@@ -6,15 +6,15 @@ library(data.table)
 library(zoo)
 
 here = getwd()
-
-# outcome file
-outfile_yq = file.path(here,'data','reg-data','did_policy_quarter.csv')
+dir_olu = file.path(here,'..')
+dir_data = file.path(dir_olu,'data')
+dir_figures = file.path(dir_olu,'figures')
 
 # read fips code data
-fips_codes = fread(file.path(here, 'data', 'tigris_fips_codes.csv'))
+fips_codes = fread(file.path(dir_data, 'tigris_fips_codes.csv'))
 
 # load pdmp policy data
-pdmp_group = fread(file.path(here,'data','policy-data','pdmp_group.csv'))
+pdmp_group = fread(file.path(dir_data,'policy-data','pdmp_group.csv'))
 pdmp_group = merge(pdmp_group, unique(fips_codes[,c('state','state_name')]),by.x='state',by.y='state_name',all.x=TRUE)
 setnames(pdmp_group,'state','state_name')
 setnames(pdmp_group,'state.y','state')
@@ -25,10 +25,10 @@ pdmp_group[,access := as.Date(access)]
 pdmp_group[,must := as.Date(must)]
 
 # load other state law database
-state_law = fread(file.path(here,'data','policy-data','state_drug_policy.csv'))
+state_law = fread(file.path(dir_data,'policy-data','state_drug_policy.csv'))
 
 # add medicaid laws 
-medicaid_law = fread(file.path(here,'data','policy-data','medicaid expansion dates.csv'))
+medicaid_law = fread(file.path(dir_data,'policy-data','medicaid expansion dates.csv'))
 medicaid_law[,notes_kff := NULL]
 medicaid_law[, medicaid_date := as.Date(kff_implentation_date,format='%m/%d/%y')]
 medicaid_law = medicaid_law[,c('state_abb','medicaid_date')]
@@ -89,6 +89,19 @@ for (law in list_laws) {
 	target_yq[[paste0(law,'_tr')]] = as.integer(target_yq$t0_date >= target_yq[[paste0(law)]])
 }
 
-# export data
+# export data to outcome file
+outfile_yq = file.path(dir_data,'reg-data','did_policy_quarter.csv')
 fwrite(target_yq, outfile_yq)
+
+old_yq = fread(file.path(dir_data,'reg-data','old_did_policy_quarter.csv'))
+
+stopifnot(all(dim(old_yq) == dim(target_yq)))
+for (cn in colnames(old_yq)) {
+	print(cn)
+	if (class(target_yq[[cn]]) == 'yearqtr') {
+		stopifnot(all.equal(old_yq[[cn]], as.numeric(target_yq[[cn]])))
+	} else {
+		stopifnot(all.equal(old_yq[[cn]], target_yq[[cn]]))
+	}
+}
 

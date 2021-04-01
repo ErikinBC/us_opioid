@@ -6,11 +6,13 @@ library(fst)
 library(data.table)
 
 here = getwd()
+dir_data = file.path(here,'..','data')
 
 time_unit = 'quarter'
 universe = 'ZIP5'
 
-data = read_fst(file.path(here,'data','claims-individual',paste0('pdmp_individual_',time_unit,'.fst')),as.data.table=TRUE)
+path_pdmp = file.path(dir_data,'claims-individual',paste0('pdmp_individual_',time_unit,'.fst'))
+data = read_fst(path_pdmp,as.data.table=TRUE)
 
 agg_time_unit = c('year','quarter')
 

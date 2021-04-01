@@ -8,7 +8,6 @@ library(fst)
 
 # specify your project root directory here
 here = getwd()
-
 dir_data = file.path(here,'..','data')
 
 # read cps data
