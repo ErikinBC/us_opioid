@@ -1,0 +1,11 @@
+ [1] huxtable_5.1.1    ggridges_0.5.3    withr_2.3.0      
+ [5] bit64_4.0.5       bit_4.0.4         usethis_2.0.0    
+ [9] here_1.0.1        colorspace_2.0-0  viridis_0.5.1     viridisLite_0.3.0
+[13] ggalluvial_0.12.3 ggrepel_0.9.0     gridExtra_2.3     mgcv_1.8-33      
+[17] nlme_3.1-151      skimr_2.1.2       forcats_0.5.0     stringr_1.4.0    
+[21] dplyr_1.0.2       readr_1.4.0       tidyr_1.1.2       tibble_3.0.4     
+[25] tidyverse_1.3.0   lfe_2.8-6         rio_0.5.16        hrbrthemes_0.8.0 
+[29] metafor_2.4-0     ggsci_2.9         ggpubr_0.4.0      gghighlight_0.3.1
+[33] ggplot2_3.3.3     purrr_0.3.4       survey_4.0        survival_3.2-7   
+[37] Matrix_1.3-2      PanelMatch_1.0.0  wfe_1.9.1         zoo_1.8-8        
+[41] fst_0.9.4         data.table_1.13.6 ipumsr_0.4.5

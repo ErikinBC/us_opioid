@@ -9,9 +9,15 @@ library(fst)
 # specify your project root directory here
 here = getwd()
 
+dir_data = file.path(here,'..','data')
+
 # read cps data
 # check _read_cps_data.R file to convert the rawdata to fst file format
-cdata = read_fst(file.path(here,'data','CPS','cps_2005_2019.fst'),as.data.table=TRUE)
+sel_var = c('CPSIDP','YEAR','MONTH','STATEFIP','SEX','AGE','RACE','HISPAN','CITIZEN','MARST','EDUC','EMPSTAT','LABFORCE','FAMSIZE','FAMINC','ASECFLAG','WTFINL')
+stopifnot(!any(duplicated(sel_var)))
+path_cdata <- file.path(dir_data,'CPS','cps_2005_2019.fst')
+cdata = read_fst(path_cdata,as.data.table=TRUE,columns=sel_var)
+dim(cdata)
 
 month_to_quarter = function(x) {
 	q = ifelse(x %in% c(1,2,3), 1,
@@ -23,21 +29,19 @@ month_to_quarter = function(x) {
 
 setnames(cdata,'YEAR','year')
 setnames(cdata,'MONTH','month')
+# identify weight variable
+# cdata[, wt_cps := WTFINL]
+setnames(cdata,'WTFINL','wt_cps')
 
 # sample selection
 cdata[is.na(ASECFLAG), ASECFLAG := 0L]
 cdata = cdata[ASECFLAG != 1,]
 
-# identify weight variable
-cdata[, wt_cps := WTFINL]
-
 # identify quarter
 cdata[,quarter := month_to_quarter(month)]
 
 # select relevant variables
-sel_var = c('CPSIDP','year','month','quarter','STATEFIP','wt_cps',
-	'SEX','AGE','RACE','HISPAN','CITIZEN','MARST','EDUC','EMPSTAT','LABFORCE','FAMSIZE','FAMINC')
-cdata = cdata[, ..sel_var]
+# cdata = cdata[, ..sel_var]
 
 # measure mean age, over age > 50, % female, % white, % black, % hispanic, % asian, % other race,
 # % unemployed, % married, 
@@ -123,4 +127,13 @@ sdata = cdata[, .(
 	p_poverty = weighted.mean(poverty, wt_cps, na.rm=TRUE),
 	p_unemployed=weighted.mean(unemployed, wt_cps,na.rm=TRUE)), by=c(agg_time,'STATEFIP')]
 
-fwrite(sdata, file.path(here,'data','reg-data',paste0('cps_state_control_',time_unit,'.csv')))
+fwrite(sdata, file.path(dir_data,'reg-data',paste0('cps_state_control_',time_unit,'.csv')))
+# Compare to previous
+old_sdata = fread(file.path(dir_data,'reg-data',paste0('old_cps_state_control_',time_unit,'.csv')))
+stopifnot(dim(old_sdata) == dim(sdata))
+stopifnot(all(colnames(old_sdata) == colnames(sdata)))
+for (cn in colnames(sdata)) {
+	print(cn)
+	stopifnot(all.equal(sdata[[cn]], old_sdata[[cn]]))
+}
+
