@@ -142,10 +142,30 @@ gg_dpc = ggplot(dat_deaths,aes(x=as.Date(yqtr),y=dpc)) + geom_line() +
     scale_x_date(date_breaks='2 years',date_labels='%Y')
 save_plot(file.path(dir_figures,'gg_dpc.png'),gg_dpc,base_height=8,base_width=10)
 
+# The reason that the growth rate for per capita deaths (whether constant or interpolated) are (basically) the same is that both annual and quarterly population growth rates are paltry:
+growth_qq = melt(dat_deaths[icd10=='all'],id.vars=c('yqtr','qtr'),measure.vars=c('pop','pop_interp','deaths'),variable.name='msr')
+growth_qq[, qtr := str_c('Q',qtr)]
+growth_qq[,pct := value/shift(value)-1,by=msr]
+cn_msr = c(pop='Pop',pop_interp='Pop (interp)',deaths='Deaths')
+
+gg_growth_pct = ggplot(growth_qq,aes(x=pct,fill=qtr)) + 
+    theme_bw() + labs(y='Frequency',x='Quarterly (%) change') + 
+    geom_histogram(position='identity',alpha=0.5,bins=20) + 
+    scale_fill_discrete(name='Quarter') + 
+    facet_wrap(~msr,labeller=labeller(msr=cn_msr),scales='free_x') + 
+    theme(panel.spacing.x=unit(2, 'lines'),legend.position='bottom')
+save_plot(file.path(dir_figures,'gg_growth_pct.png'), gg_growth_pct, base_height=3,base_width=8)
+
 ###################################
 # --- (4) DEATHS AND POLICIES --- #
 
-# How does the distribution of (per capita) deaths compare to the treated vs untreated states? 
+# How does the distribution of (per capita) deaths compare to the treated vs untreated states?
 
+cn_idx = c('state','year','qtr','t0_date')
+cn_policy <- c('access', 'enactment','dayslimit','goodsam','pillmill','naloxone','medicaid')
+# Append to population to back out the raw deaths
+
+
+ddata[1:2,] %>% t
 
 dat_deaths %>% head
