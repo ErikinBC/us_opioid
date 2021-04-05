@@ -7,6 +7,7 @@ for (pckg in pckgs) { library(pckg, character.only=TRUE) }
 here = getwd()
 dir_olu = file.path(here,'..')
 dir_figures = file.path(dir_olu, 'figures')
+dir_output = file.path(dir_olu, 'output')
 dir_data = file.path(dir_olu,'data')
 dir_regdata = file.path(dir_data,'reg-data')
 dir_cdc = file.path(dir_data,'cdc-data')
@@ -77,12 +78,11 @@ dat_cdc[,err := (deaths - round(deaths_pc*pop))/deaths]
 summary(100*dat_cdc[err != 0]$err)  # No more than 1% difference
 
 # Compare this to the regression data
-cn_ddata <- colnames(ddata)
-cn_mort <- c(str_subset(cn_ddata,'^mortality'),'opioid_mortality_per100k')
-
-df_mort = melt(ddata,id.vars=c('state','year','quarter'),measure.vars=cn_mort,variable.name='mortality',value.name='deaths')
-df_mort[,mortality := str_replace(mortality,'mortality_','')]
-df_mort[,mortality := ifelse(mortality == 'opioid_per100k','all',mortality)]
+cn_ddata = colnames(ddata)
+cn_mort_lvl = c(str_subset(cn_ddata,'^mortality'),'opioid_mortality_per100k')
+cn_mort_lbl = str_replace(str_replace(cn_mort_lvl,'mortality_',''),'opioid_per100k','all')
+df_mort = melt(ddata,id.vars=c('state','year','quarter'),measure.vars=cn_mort_lvl,variable.name='mortality',value.name='deaths')
+df_mort[, mortality := factor(mortality,cn_mort_lvl,cn_mort_lbl)]
 setnames(df_mort,'mortality','icd10')
 df_mort[,yqtr := as.yearqtr(str_c(year,quarter,sep='-'))]
 df_mort[, `:=` (year=NULL,quarter=NULL)]
@@ -110,7 +110,7 @@ dat_pop_qq[, `:=` (year=ifelse(qtr==5,year+1, year), qtr=ifelse(qtr == 5, 1, qtr
 dat_deaths = merge(dat_deaths,dat_pop_qq,by=c('year','qtr'),suffixes=c('','_interp'))
 dat_deaths = dat_deaths[order(icd10,yqtr)]
 # Calculate different PC deaths
-dat_deaths[,`:=` (dpc = 100000 * deaths / pop, dpc_interp=100000 * deaths / pop_interp)]
+dat_deaths[,`:=` (dpc = 1e5 * deaths / pop, dpc_interp=1e5 * deaths / pop_interp)]
 
 dat_deaths[,c('icd10','yqtr','deaths','dpc','dpc_interp')] %>% head(20)
 dcast(dat_deaths_long,'icd10+yqtr ~ method',value.var='pct')[dpc > deaths] %>% head
@@ -159,13 +159,101 @@ save_plot(file.path(dir_figures,'gg_growth_pct.png'), gg_growth_pct, base_height
 ###################################
 # --- (4) DEATHS AND POLICIES --- #
 
+# Calculate state-level pop
+dat_pop_state = dat_cdc[,list(pop=mean(pop)),by=list(state,yqtr)]
+dat_pop_state[, yqtr := as.integer(format(yqtr,'%Y'))+(as.integer(format(yqtr,'%q'))-1)/4]
+
 # How does the distribution of (per capita) deaths compare to the treated vs untreated states?
+cn_idx = c('state','year','t0_date') #'quarter'
+cn_policy_lvl <- c('access','must','pillmill','dayslimit','goodsam','naloxone','medicaid')
+cn_policy_lbl <- c('PDMP access','Mandatory PDMP','Pain Clinic Law','Prescription Limit Law','Good Samaritan Law','Naloxone Law','Medicaid Expansion')
+df_policy = ddata[,c(cn_idx,cn_policy_lvl,cn_mort_lvl),with=F]
+setnames(df_policy,c('t0_date',cn_mort_lvl),c('yqtr',cn_mort_lbl))
+# Melt over mortality types
+df_policy = melt(df_policy,measure.vars=cn_mort_lbl,variable.name='mort',value.name='deaths_pc')
+# Melt over policy types
+df_policy = melt(df_policy,measure.vars=cn_policy_lvl,variable.name='policy',value.name='ptime')
+# Add state-level population to back out the raw deaths
+df_policy = merge(df_policy,dat_pop_state,by=c('state','yqtr'),all.x=T)
+df_policy[, `:=` (deaths = round(deaths_pc * pop), deaths_pc=NULL)]
+df_policy = df_policy[order(state,mort,policy,yqtr)]
+# Puerto rico has missing data
+df_policy = df_policy[state != 'PR']
+# Assign weather policy is active
+df_policy[, p_active := ifelse(is.na(ptime),F, ifelse(yqtr >= ptime,T,F))]
+df_policy[state == 'TX' & yqtr == 2017.25 & mort == 'all']
+# Fancy labels
+df_policy[, `:=` (mort=factor(mort, names(cn_icd10_lvl), as.character(cn_icd10_lvl)), 
+                  policy=factor(policy,cn_policy_lvl,cn_policy_lbl))]
 
-cn_idx = c('state','year','qtr','t0_date')
-cn_policy <- c('access', 'enactment','dayslimit','goodsam','pillmill','naloxone','medicaid')
-# Append to population to back out the raw deaths
+# --- (i) PERCENTAGE OF STATES WITH A POLICY --- #
+df_pct_policy = df_policy[mort=='Heroin' & policy!='Medicaid Expansion',list(pct=mean(p_active)),by=list(policy,yqtr)]
+gg_pct_policy = ggplot(df_pct_policy,aes(x=yqtr,y=pct,color=policy,shape=policy)) + 
+    theme_bw() + geom_line() + geom_point() + 
+    labs(y='% of states with policy') + 
+    theme(axis.title.x=element_blank())
+save_plot(file.path(dir_figures,'gg_pct_policy.png'), gg_pct_policy, base_height=4,base_width=6)
 
 
-ddata[1:2,] %>% t
+# --- (ii) DEATHS RATE THOSE WITH AND WITHOUT A POLICY --- #
+df_comp_policy <- df_policy[policy!='Medicaid Expansion',list(deaths_pc=1e5*sum(deaths)/sum(pop)),by=list(policy,mort,yqtr,p_active)]
+# Get 1000 bootstrap
+tmp_df1 = data.table::copy(df_policy[policy!='Medicaid Expansion'])
+n = nrow(tmp_df1)
+nsim = 1000
+alpha = 0.05
+path_bs_comp = file.path(dir_output,'bs_comp_policy.csv')
+cn_old = c('FALSE','TRUE')
+cn_new = c('p_F','p_T')
+if (!file.exists(path_bs_comp)) {
+    print('Running bootstrap iterations')
+    set.seed(nsim)
+    holder = list()
+    for (i in seq(nsim)) {
+        if ((i %% 25) == 0) { print(i) }
+        tmp_df2 = tmp_df1[,.SD[sample(.N,replace=TRUE)],by = list(policy,mort,yqtr,p_active)]
+        tmp_df2 = tmp_df2[,list(deaths_pc=1e5*sum(deaths)/sum(pop),idx=i),by=list(policy,mort,yqtr,p_active)]
+        holder[[i]] = tmp_df2
+    }
+    tmp_df2 = rbindlist(holder)
+    tmp_df3 = dcast(tmp_df2,'policy+mort+yqtr+idx~p_active',value.var='deaths_pc')
+    setnames(tmp_df3,cn_old,cn_new)
+    tmp_df3[, `:=` (deaths_pc = p_T - p_F, p_active='diff')]
+    tmp_df4 = rbind(tmp_df2, tmp_df3[!is.na(deaths_pc),-cn_new,with=F])
+    tmp_df = tmp_df4[,list(lb=quantile(deaths_pc,alpha/2), ub=quantile(deaths_pc,1-alpha/2)),by=list(policy,mort,yqtr,p_active)]
+    fwrite(tmp_df,path_bs_comp)
+    rm(holder)
+} else {
+    print('Bootstraps already exists')
+    tmp_df = fread(path_bs_comp)
+}
+# Get the "diff"
+tmp_comp = dcast(df_comp_policy,'policy+mort+yqtr~p_active',value.var='deaths_pc')
+setnames(tmp_comp, cn_old, cn_new)
+tmp_comp[, `:=` (deaths_pc = p_T - p_F, p_active='diff')]
+tmp_comp = tmp_comp[!is.na(deaths_pc),-cn_new,with=F]
+df_comp_policy = rbind(df_comp_policy, tmp_comp)
+df_comp_policy = merge(df_comp_policy,tmp_df)
+df_comp_policy[, `:=` ( p_active=factor(p_active,c('TRUE','FALSE','diff'),c('Yes','No','Diff')) )]
+gg_comp_policy = ggplot(df_comp_policy[p_active != 'Diff'],aes(x=yqtr,y=deaths_pc,color=p_active)) + 
+    theme_bw() + geom_line() + 
+    geom_ribbon(aes(ymin=lb,ymax=ub,fill=p_active),alpha=0.25) + 
+    labs(y='Deaths per 100k',subtitle='Area shows 95% CI') + 
+    theme(axis.title.x=element_blank()) + 
+    facet_grid(mort~policy,scales='free_y') + 
+    scale_color_discrete(name='Has policy') + 
+    guides(fill=FALSE) + 
+    scale_x_continuous(limits=c(2005,2019),breaks=seq(2006,2020,3))
+save_plot(file.path(dir_figures,'gg_comp_policy.png'), gg_comp_policy, base_height=12,base_width=15)
 
-dat_deaths %>% head
+
+gg_diff_policy = ggplot(df_comp_policy[p_active == 'Diff'],aes(x=yqtr,y=deaths_pc)) + 
+    theme_bw() + geom_line() + 
+    geom_ribbon(aes(ymin=lb,ymax=ub),fill='black',alpha=0.25) + 
+    labs(y='Difference in deaths per 100k',subtitle='Area shows 95% CI') + 
+    theme(axis.title.x=element_blank()) + 
+    facet_grid(mort~policy,scales='free_y') + 
+    guides(fill=FALSE) + 
+    geom_hline(yintercept=0,color='blue') + 
+    scale_x_continuous(limits=c(2005,2019),breaks=seq(2006,2020,3))
+save_plot(file.path(dir_figures,'gg_diff_policy.png'), gg_diff_policy, base_height=12,base_width=15)

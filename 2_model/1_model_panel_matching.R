@@ -2,37 +2,15 @@
 # ' run panel matching across all treatments + all outcomes
 # ----------------------------------------------------------------------
 
-library(parallel)
-library(data.table)
-library(wfe)
-library(PanelMatch)
-library(survey)
-library(purrr)
+pckgs <- c('data.table','parallel','wfe','PanelMatch','survey','purrr')
+for (pckg in pckgs) { library(pckg, character.only=TRUE) }
 
-extract.coef <- function(model, type=NULL) {
-  if (is.null(type)){
-    s <- summary(model)
-    names <- rownames(s$coef)
-    co <- s$coef[, 1]
-    se <- s$coef[, 2]
-    pval <- s$coef[, 4]
-
-  } else if (type=="bootstrap") {
-    names = ""
-    co = model$o.coef 
-    se = sd(model$boots)
-    pval = NA
-  }
-
-  tr = data.table(
-    coef.names = names,
-    coef = co,
-    se = se,
-    pvalues = pval)  
-  return(tr)
-}
+source('funs_support.R')
 
 here = getwd()
+dir_olu = file.path(here,'..')
+dir_data = file.path(dir_olu,'data')
+dir_regdata = file.path(dir_data,'reg-data')
 
 # variables of interest
 target_depvars = matrix(c(
@@ -42,7 +20,6 @@ target_depvars = matrix(c(
     'mortality_methadone','Methadone Mortality',
     'mortality_synth','Synthetic Mortality',
     'mortality_cocaine','Cocaine Mortality',
-
     'overdosed_patients_per100k','P(Opioid Use Disorder and Overdose)',
     'total_opioid_patients_per100k','P(taking opioid)',
     'total_overlapping_per100k','P(overlapping claims)',
@@ -59,23 +36,20 @@ list_treatment = paste0(c('access','must','naloxone','pillmill','goodsam','daysl
 time_unit = 'quarter'
 
 # load data 
-data = fread(file.path(here,'data','reg-data',paste0('did_',time_unit,'_addmeth.csv')))
-
+data = fread(file.path(dir_regdata,paste0('did_',time_unit,'_addmeth.csv')))
 # adjust mortality data 
-for (DV in depvars[1:6]) {
-    data[,(DV) := get(DV)*10^5]
-}
+for (DV in depvars[1:6]) { data[,(DV) := get(DV)*1e5] }
 
 # load state-level controls 
-scontrols = fread(file.path(here,'data','did-data',paste0('cps_state_control_',time_unit,'.csv')))
-fips_codes = fread(file.path(here, 'data', 'tigris_fips_codes.csv'))
+scontrols = fread(file.path(dir_regdata,paste0('cps_state_control_',time_unit,'.csv')))
+fips_codes = fread(file.path(dir_data, 'tigris_fips_codes.csv'))
 scontrols = merge(scontrols,unique(fips_codes[,c('state_code','state')]),all.x=TRUE, by.x='STATEFIP',by.y='state_code')
 
 # re-specification of time-indicators to integer sequence
-	agg_time_unit = c('year','quarter')
-	data = merge(data, scontrols, by=c('state',agg_time_unit), all.x=TRUE, all.y=TRUE)
-	data[,time_id := year * 4 + quarter]
-	data[, time_id := as.integer(time_id - min(time_id)+1 )]
+agg_time_unit = c('year','quarter')
+data = merge(data, scontrols, by=c('state',agg_time_unit), all.x=TRUE, all.y=TRUE)
+data[,time_id := year * 4 + quarter]
+data[, time_id := as.integer(time_id - min(time_id)+1 )]
 
 # re-specification of state-indicators
 data[, state_code := as.integer(as.factor(state))]
@@ -87,8 +61,12 @@ data = data[year >= 2007 & year <= 2018,]
 covariate = c(
     'p_female','p_age40_60','p_age60up','p_white','p_black','p_asian','p_hispanic',
     'p_unemployed','p_poverty','n_resident')
-treatment = list_treatment[1]
+# treatment = list_treatment[1]  # Why is this being pre-assigned??
 
+# data[is.na(naloxone_tr),c('state','year','quarter','naloxone_tr')]
+# data[,list(mu=mean(naloxone_tr,na.rm=T)),by=list(year,quarter)]
+# DV=depvars[1];treatment=list_treatment[3]
+# outcome_lead=0:12;treatment_lag=8;balance_check_lag = 4
 run_pmatch = function(DV, treatment,covariate,
     outcome_lead=0:12,
     treatment_lag=8,
