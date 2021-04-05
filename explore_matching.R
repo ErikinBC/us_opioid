@@ -1,7 +1,9 @@
+# Load packages
 pckgs <- c('data.table','cowplot','magrittr','stringr','zoo','ggplot2','data.table','parallel','wfe','PanelMatch','survey','purrr')
 for (pckg in pckgs) { library(pckg, character.only=TRUE) }
 
 source('funs_support.R')
+source('funs_matching.R')
 # specify your project root directory here
 here = getwd()
 dir_olu = file.path(here,'..')
@@ -10,6 +12,10 @@ dir_regdata = file.path(dir_data,'reg-data')
 
 ##################################
 # --- (1) LOAD AND PREP DATA --- #
+
+# Policies of intereet
+cn_policy_lvl <- c('goodsam','naloxone') #'access','must','pillmill','dayslimit','medicaid'
+cn_policy_lbl <- c('Good Samaritan Law','Naloxone Law') #'PDMP access','Mandatory PDMP','Pain Clinic Law','Prescription Limit Law','Medicaid Expansion'
 
 # variables of interest
 target_depvars = matrix(c(
@@ -49,84 +55,69 @@ data[, state_code := as.integer(as.factor(state))]
 di_state = data[,list(.N),by=list(state,state_code)][,-'N']
 di_time_id = data[,list(.N),by=list(t0_date,time_id)][,-'N']
 
-# run weighted fixed-effects estimators
-covariate = c('p_female','p_age40_60','p_age60up',
-    'p_white','p_black','p_asian','p_hispanic',
-    'p_unemployed','p_poverty','n_resident')
-
-data[,c('state','year',covariate[1:3]),with=F]
 # n_resident lines up with state population
 data[,list(pop=max(n_resident)),by=list(state)][order(-pop)]
-data[1] %>% t
 
+# Get the unique time of the outcomes
+di_policy = melt(data,c('state'),cn_policy_lvl,'policy')
+di_policy = di_policy[,list(t0_date=mean(value)),by=list(state,policy)]
+di_policy[,max(t0_date,na.rm=T),by=policy]
 
+########################################
+# --- (2) RUN NON-PARAMERIC TRENDS --- #
 
-###########################
-# --- (2) RUN "MODEL" --- #
+# See equation (18) for the DiD estimator
 
-# DV=depvars[1];treatment=list_treatment[3]
-# outcome_lead=0:12;treatment_lag=8;balance_check_lag = 4
+# Covariates to determine "weighting" on
+covariates = c('p_female','p_age40_60','p_age60up',
+    'p_white','p_black','p_asian','p_hispanic',
+    'p_unemployed','p_poverty','n_resident')
+head(data[,c('state','year',covariates[1:3]),with=F])
 
-# get_np_panel <- function(DV, treatment,covariate,
-#     outcome_lead=0:12, treatment_lag=8, balance_check_lag = 4) {}
-covs.formula = as.formula(paste0('~ ',
-        'I(lag(',DV,', 1:12))',
-        '+ medicaid_tr',
-        '+ ',paste0('lag(',covariate,', 1)',collapse = '+')
-        ))
+# Use overall opioid death rate
+depvar = "opioid_mortality_per100k"
 
-# run PM matching
-pmatch <- PanelMatch(
-    outcome.var = DV,
-    covs.formula = covs.formula, 
-    treatment = treatment,time.id = 'time_id', unit.id = 'state_code', 
-    refinement.method = 'CBPS.weight',match.missing = TRUE, 
-    verbose=TRUE,
-    forbid.treatment.reversal = TRUE, matching=TRUE, lag=treatment_lag,
-    qoi='att',  lead = 0, data=as.data.frame(data))
-
-# access mean balance over time on DV
-all_i = 1:length(names(pmatch$att))
-list_long_data = list(); n = 1
-i=1
-for (i in all_i) {
-    # Get the treatment state and time
-    treated_st_time = names(pmatch$att)[i]
-    treated_st = as.integer(unlist(strsplit(treated_st_time,'\\.'))[1])
-    treated_time = as.integer(unlist(strsplit(treated_st_time,'\\.'))[2])
-    # Find out who the "controls" are
-    control_st_weight = attributes(pmatch$att[[i]])$weights
-    control_st = data.table(state_code=as.integer(names(control_st_weight)),weight=control_st_weight)
-    ctr_data = as.data.table(merge(data[,c('state_code','time_id',DV),with=FALSE],control_st,by='state_code'))
-    control_st[, `:=` (state_code_tr=treated_st, state_code_ctr=state_code, state_code=NULL )]
-    # OUTCOME BALANCE
-    # COVARIATE BALANCE
-
-    if (nrow(ctr_data) > 0) {
-        # (i) Calculates weighted 
-        ctr_data = ctr_data[, .(
-            weighted_outcome = weighted.mean(get(DV), weight,na.rm=TRUE)
-            ),by='time_id']
-        setnames(ctr_data, 'weighted_outcome',DV)
-        ctr_data[,type := 'matched']
-        ctr_data[, time_id := time_id - treated_time]
-        
-        # (ii) Is is the data 
-        tr_data = as.data.table(data[state_code==treated_st,c('time_id',DV),with=FALSE])
-        tr_data[,type := 'treated']
-        tr_data[, time_id := time_id - treated_time]
-
-        # (iii) 
-        all_ctr_data = data[get(treatment) == 0 & state_code != treated_st,]
-        all_ctr_data = all_ctr_data[, .(
-            unweighted_outcome = mean(get(DV),na.rm=TRUE)
-            ),by='time_id']
-        setnames(all_ctr_data, 'unweighted_outcome',DV)
-        all_ctr_data[,type := 'unmatched']
-        all_ctr_data[, time_id := time_id - treated_time]
-
-        # (iv) Save the data
-        control_st
-    }
-    
+lst_w = list()
+lst_m = list() 
+for (policy in cn_policy_lvl) {
+    policy_tr = str_c(policy,'_tr')
+    tmp_lst <- get_np_panel(depvar, policy_tr, covariates, treatment_lag=8)
+    lst_w[[policy]] = tmp_lst$w
+    lst_m[[policy]] = tmp_lst$m
+    rm(tmp_lst)
 }
+# Combine weights
+df_weight = rbindlist(lst_w)
+df_weight[, `:=` (DV = factor(DV,depvars,depvars_label),treatment=factor(treatment,str_c(cn_policy_lvl,'_tr'),cn_policy_lbl))]
+df_weight = merge(merge(df_weight,di_state,by.x='state_code_tr',by.y='state_code'),di_state,by.x='state_code_ctr',by.y='state_code')
+setnames(df_weight,c('DV','treatment','state.x','state.y'),c('depvar','policy','state_tr','state_ctr'))
+df_weight = df_weight[,-c('state_code_ctr','state_code_tr')]
+# df_weight[,list(n=.N),by=list(policy,state_ctr)][order(-policy,-n)]
+
+# Compare outcomes
+df_np = rbindlist(lst_m)
+df_np[, `:=` (DV = factor(DV,depvars,depvars_label),treatment=factor(treatment,str_c(cn_policy_lvl,'_tr'),cn_policy_lbl))]
+df_np = merge(df_np,di_state,by.x='state_code_tr',by.y='state_code')
+setnames(df_np,c('DV','treatment','state'),c('depvar','policy','state_tr'))
+df_np[, state_code_tr := NULL]
+df_np[1:3] %>% t
+rm(list=c('lst_w','lst_m'))
+
+df_weight[,list(n=length(unique(state_tr))),by=policy]
+df_np[,list(n=length(unique(state_tr))),by=policy]
+
+#################$$$$#######################
+# --- (3) ANALYZE NON-PARAMERIC TRENDS --- #
+
+
+
+
+##########################################
+# --- (4) ONLINE LOGISTIC REGRESSION --- #
+
+# How accurate is predicting Y_(it) given the lags of X_it-L, Z_it-L and Y_it-L? How much of this is because of knowing Y? Do the Z's help at all?
+# See equation (13)
+# "To estimate the propensity score, we first create a subset of the data, consisting of all treated observations and their matched control observations from the same year.""
+
+
+
