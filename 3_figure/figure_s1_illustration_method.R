@@ -5,12 +5,16 @@
 # 3. event-study design 
 # 4. panel matching outcomes
 #==============================================================================
-library(gghighlight)
-library(ggpubr)
-library(ggsci)
-library(data.table)
+
+pckgs <- c('data.table','ggplot2','cowplot',
+           'gghighlight','ggpubr','ggsci')
+for (pckg in pckgs) { library(pckg, character.only=TRUE) }
 
 here = getwd()
+dir_olu = file.path(here,'..')
+dir_results = file.path(dir_olu, 'results')
+dir_figures = file.path(dir_olu, 'figures')
+dir_data = file.path(dir_olu,'data')
 
 # variables of interest
 target_depvars = matrix(c(
@@ -37,10 +41,9 @@ depvars = target_depvars[1:12,1]
 list_treatment = paste0(c('access','must','naloxone','pillmill','goodsam','dayslimit'),'_tr')
 list_treatment_label = c('PDMP access','mandatory PDMP','Naloxone Law','Pain Clinic','Good Samaritan','Days Limit')
 
-outcome_balance = fread(file.path(here,'results','outcome_balance.csv'))
-coef_event = fread(file.path(here,'results','coef_event_study.csv'))
-coef_pmatch = fread(file.path(here,'results','coef_pmatch.csv'))
-
+outcome_balance = fread(file.path(dir_results,'outcome_balance.csv'))
+coef_event = fread(file.path(dir_results,'coef_event_study.csv'))
+coef_pmatch = fread(file.path(dir_results,'coef_pmatch.csv'))
 
 # for each outcome + treatment combinations
 DV = depvars_label[1]
@@ -62,6 +65,7 @@ fig2 = ggplot(tab1[-12 <= time_id & time_id <= 12 & treatment == tr & outcome ==
     theme(axis.title.y = element_text(size=10))+
     guides(alpha=FALSE, shape=guide_legend(title=NULL),color=guide_legend(title=NULL))+
     labs(y=paste0(DV,' deaths per 100k'),x='Quarters before and after policy change',subtitle='B. Pre-post trends')
+save_plot(file.path(dir_figures,'eFigure1.png'),fig2,base_height=4,base_width=5)
 
 tab2 = coef_event
 tab2[,outcome := factor(outcome,levels=depvars,labels=depvars_label)]
