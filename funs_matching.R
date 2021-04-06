@@ -1,3 +1,57 @@
+####### FUNCTION TO CARRRY OUT PANEL ESTIMATE #########
+run_pmatch = function(DV, treatment,covariate,df, outcome_lead=0:12, treatment_lag=8, balance_check_lag = 4) {
+    # DV=depvars[1];treatment=list_treatment[1]
+    # covariate=covariates;df=data.table::copy(data)
+    # outcome_lead=0:12;treatment_lag=8;balance_check_lag=4
+
+    covs.formula = as.formula(paste0('~ ',
+        'I(lag(',DV,', 1:12))',
+        '+ medicaid_tr',
+        '+ ',paste0('lag(',covariate,', 1)',collapse = '+')
+        ))
+    
+    # use safely for error controls
+    safe_pmatch = safely(PanelMatch)
+
+    list_coef_fit = list(); k = 1; list_error = list(); e = 1
+    for (ll in outcome_lead) {
+        print(sprintf('Lead %i of %i',ll,max(outcome_lead)))
+        pmatch <- safe_pmatch(
+            outcome.var = DV,
+            covs.formula = covs.formula, 
+            treatment = treatment,time.id = 'time_id', unit.id = 'state_code', 
+            refinement.method = 'CBPS.weight',match.missing = TRUE, 
+            verbose=TRUE,
+            forbid.treatment.reversal = TRUE, matching=TRUE, lag=treatment_lag,
+            qoi='att',  lead = ll, data=as.data.frame(df))
+        
+        if (is.null(pmatch$error)){
+            set.seed(1234)
+            pmatch.fit <- PanelEstimate(sets = pmatch$result,number.iterations = 1000, confidence.level = 0.95, df.adjustment = FALSE,data=as.data.frame(df))
+            coef = data.table(time_id = rownames(summary(pmatch.fit)$summary),summary(pmatch.fit)$summary)
+            names(coef) = c('time_id','coef','se','lci','uci')
+
+            coef$N_treated = summary(pmatch.fit$matched.sets)$number.of.treated.units
+            coef$mean_matched_control = as.numeric(summary(pmatch.fit$matched.sets)$set.size.summary['Mean'])
+            coef$total_control = sum(summary(pmatch.fit$matched.sets)$overview$matched.set.size)
+            
+            list_coef_fit[[k]] = coef
+            k = k + 1
+
+        } else {
+            coef = data.table(time_id = paste0('t+',ll), coef=NA, se=NA, lci=NA, uci=NA,
+                N_treated=NA_integer_,mean_matched_control=NA,total_control=NA_integer_)
+            list_coef_fit[[k]] = coef
+            k = k + 1        
+            list_error[[e]] = list(DV=DV, treatment=treatment, lead=ll, error=pmatch$error)
+            e = e + 1
+        }
+    }
+
+    coef_fit = rbindlist(list_coef_fit)
+    
+    return(list(coef_fit=coef_fit, error=list_error))
+}
 
 # ---- FUNCTION TO GET NON-PARA ESTIMAT ----- # 
 get_np_panel <- function(DV, treatment, covariate, treatment_lag=8) {
