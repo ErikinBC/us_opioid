@@ -51,11 +51,33 @@ meta_pmatch = meta_pmatch[treatment %in% treatment_list & outcome %in% depvars]
 meta_pmatch[, `:=` (coef=coef/3000, lci=lci/3000, uci=uci/3000)]
 meta_pmatch[, zscore := coef/se]
 
-#############################################
-# ----- (2) COMPARE TO POINT ESTIMATE ----- #
+############################################
+# ----- (2) ZSCORE SHOWS RIGHT SHIFT ----- #
 
 df_tab[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment)]
 df_coef[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment,Lead)]
+
+se_tab_z = df_tab[,list(mu=mean(zscore),se=mean(se)),by=list(outcome,treatment,coef>0)]
+se_tab_z = se_tab_z[order(treatment,coef)]
+se_tab_z
+
+# Make figures showing the distribution of the standard error
+gg_se_tab = ggplot(df_tab,aes(x=se,fill=coef>0)) + 
+    theme_bw() + 
+    geom_histogram(position='identity',alpha=0.4,bins=30,color='black') + 
+    scale_fill_discrete(name='Coefficient > 0') + 
+    labs(x='Standard error',y='Permutation frequency')
+save_plot(file.path(dir_figures,'gg_se_tab.png'),gg_se_tab,base_height=4,base_width=6)
+
+
+gg_se_coef = ggplot(df_coef,aes(x=se,fill=coef>0)) + 
+    theme_bw() + 
+    facet_wrap('~Lead',labeller=label_both) + 
+    geom_histogram(position='identity',alpha=0.4,bins=30,color='black') + 
+    scale_fill_discrete(name='Coefficient > 0') + 
+    labs(x='Standard error',y='Permutation frequency')
+save_plot(file.path(dir_figures,'gg_se_coef.png'),gg_se_coef,base_height=6,base_width=10)
+
 
 ################################
 # ----- (3) DO INFERENCE ----- #
