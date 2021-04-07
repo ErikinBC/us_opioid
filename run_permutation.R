@@ -1,15 +1,18 @@
-pckgs <- c('data.table','parallel','wfe','PanelMatch','survey','purrr',
-           'gghighlight', 'ggpubr', 'ggsci', 'cowplot','viridis','colorspace',
-           'metafor', 'hrbrthemes', 'rio')
-for (pckg in pckgs) { library(pckg, character.only=TRUE) }
+args = commandArgs(trailingOnly=TRUE)
+seed = as.integer(args[1])
+print(sprintf('Seed: %i',seed))
 
 stime <- Sys.time()
+pckgs <- c('data.table','parallel','wfe','PanelMatch','survey','purrr','metafor')
+for (pckg in pckgs) { library(pckg, character.only=TRUE) }
 
 source('funs_support.R')
 source('funs_matching.R')
 
 here = getwd()
 dir_olu = file.path(here,'..')
+dir_output = file.path(dir_olu,'output')
+dir_permute = file.path(dir_output,'permute')
 dir_data = file.path(dir_olu,'data')
 dir_regdata = file.path(dir_data,'reg-data')
 
@@ -51,6 +54,23 @@ data[, state_code := as.integer(as.factor(state))]
 # sample selection based on the period
 data = data[year >= 2007 & year <= 2018,]
 
+# Scramble the dates if seed > 0
+set.seed(seed)
+if (seed > 0) {
+    print('Scrambling policy adoption date')
+    alt_lst_tr = gsub('_tr','',list_treatment)
+    dates_tr = data[,lapply(.SD,function(x) mean(x)),by=state,.SDcols=alt_lst_tr]
+    dates_tr = cbind(data.table(state=dates_tr$state),dates_tr[,lapply(.SD,function(x) sample(x)),.SDcols=alt_lst_tr])
+    data = merge(data[,-alt_lst_tr,with=F],dates_tr,by='state')
+    for (tr in list_treatment) {
+        tr2 = gsub('_tr','',tr)
+        data[[tr]] = ifelse(data$t0_date >= data[[tr2]], 1, 0)
+    }
+} else {
+    print('Policy adoption will not be scrambled; seed==0')
+}
+
+
 # run weighted fixed-effects estimators
 covariates = c('p_female','p_age40_60','p_age60up','p_white',
                 'p_black','p_asian','p_hispanic',
@@ -58,61 +78,42 @@ covariates = c('p_female','p_age40_60','p_age60up','p_white',
 
 
 # run models across all DV + treatments
-list_out = list(); n = 1
+list_out = list()
+i = 1
 for (depvar in depvars) {
-    print(sprintf('Running model for depvar: %s',depvar))
-    output = mclapply(list_treatment,function(treatment) {
-       message('=== now running for ',depvar,' ',treatment,' ===')
+    for (treatment in list_treatment) {
+        print(sprintf('outcome: %s',depvar))
         output = run_pmatch(DV=depvar, treatment=treatment, covariate=covariates, df=data.table::copy(data))
-        output$outcome = depvar
-        output$treatment = treatment
-        return(output)
-    }, mc.cores = parallel::detectCores() - 2)
-    list_out[[n]] = output
-    n = n + 1
-}
-
-# combine output
-all_list_out = list(); n = 1 
-for (k in 1:length(list_out)){
-    tmp = list_out[[k]]
-    for (j in 1:length(tmp)){
-        all_list_out[[n]] = tmp[[j]]
-        n = n + 1
+        output[, `:=` (outcome=depvar, treatment=treatment)]
+        list_out[[i]] = output
+        i = i + 1
     }
 }
-
-# export policy effects from panel matching
-coef_pmatch = rbindlist(lapply(all_list_out, function(x) {
-    out=x$coef_fit
-    out[,outcome := x$outcome]
-    out[,treatment := x$treatment]
-    }))
-
-# fwrite(coef_pmatch, file.path(here,'results','coef_pmatch.csv'))
+coef_pmatch = rbindlist(list_out)
+coef_pmatch[, seed_idx := seed]
+print(coef_pmatch)
+fwrite(coef_pmatch,file.path(dir_permute,paste0('coef_pmatch_',seed,'.csv')))
 
 #########################################
 # ----- 2_model/2_meta_analysis.R ----- #
 
 # run meta analysis
 list_out = list(); n = 1 
-for (tr in list_treatment){
-    for (dv in depvars){
-        dat = coef_pmatch[outcome == dv & treatment == tr,]
+for (depvar in depvars) {
+    for (tr in list_treatment) {
+        dat = coef_pmatch[outcome == depvar & treatment == tr,]
         res.RE <- rma(yi=coef, sei=se, data=dat, method="REML")
-        out = data.table(
-                 coef=coef(res.RE) 
-                ,se=res.RE$se
-                ,pval=res.RE$pval
-                ,lci=res.RE$ci.lb
-                ,uci=res.RE$ci.ub
-                ,treatment=tr
-                ,outcome=dv)
+        out = data.table(coef=coef(res.RE), se=res.RE$se,pval=res.RE$pval, 
+                         lci=res.RE$ci.lb, uci=res.RE$ci.ub, treatment=tr, outcome=depvar)
         list_out[[n]] = out
         n = n + 1
     }
 }
 tab = rbindlist(list_out)
+tab[, seed_idx := seed]
+print(tab)
+fwrite(tab,file.path(dir_permute,paste0('tab_',seed,'.csv')))
+
 # # readjust digits (per 300 million)
 # tab[grepl('mortality',outcome), coef := coef * 3000]
 # tab[grepl('mortality',outcome), lci := lci * 3000]
@@ -122,12 +123,3 @@ tab = rbindlist(list_out)
 etime = Sys.time()
 nsec = round(as.numeric(difftime(etime,stime,units='secs')))
 print(sprintf('--------- SCRIPT TOOK %i SECONDS TO RUN -----------',nsec))
-
-
-
-
-
-
-
-
-
