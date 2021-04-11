@@ -134,13 +134,13 @@ save_plot(file.path(dir_figures,'gg_qq_deaths.png'),gg_qq_deaths,base_height=8,b
 
 dat_deaths$yqtr %>% head %>% as.Date
 # Time series
-gg_dpc = ggplot(dat_deaths,aes(x=as.Date(yqtr),y=dpc)) + geom_line() + 
+gg_dpc = ggplot(dat_deaths[icd10!='all'],aes(x=as.Date(yqtr),y=4*dpc)) + geom_line() + 
     theme_bw() + 
-    labs(y='Deaths per 100K',title='Total US Overdose deaths') + 
+    labs(y='Annualized deaths per 100K') +   #,title='Quarterly US Overdose deaths'
     theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=90)) + 
-    facet_wrap(~icd10,labeller=labeller(icd10=cn_icd10_lvl),scales='free_y') + 
+    facet_wrap(~icd10,labeller=labeller(icd10=cn_icd10_lvl),scales='free_y',nrow=2) + 
     scale_x_date(date_breaks='2 years',date_labels='%Y')
-save_plot(file.path(dir_figures,'gg_dpc.png'),gg_dpc,base_height=8,base_width=10)
+save_plot(file.path(dir_figures,'gg_dpc.png'),gg_dpc,base_height=5,base_width=9)
 
 # The reason that the growth rate for per capita deaths (whether constant or interpolated) are (basically) the same is that both annual and quarterly population growth rates are paltry:
 growth_qq = melt(dat_deaths[icd10=='all'],id.vars=c('yqtr','qtr'),measure.vars=c('pop','pop_interp','deaths'),variable.name='msr')
@@ -156,8 +156,49 @@ gg_growth_pct = ggplot(growth_qq,aes(x=pct,fill=qtr)) +
     theme(panel.spacing.x=unit(2, 'lines'),legend.position='bottom')
 save_plot(file.path(dir_figures,'gg_growth_pct.png'), gg_growth_pct, base_height=3,base_width=8)
 
+#################################
+# --- (4) COMPARE TO CANADA --- #
+
+# https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/graphs?index=395
+dat_cad = fread(file.path(dir_data,'cad-data','SubstanceHarmsData.csv'))
+dat_cad = dat_cad[!(Time_Period %in% c('By quarter','By year'))]
+dat_cad = dat_cad[Substance == 'Opioids' & Source == 'Deaths' & Unit=='Number']
+dat_cad = dat_cad[!(Value %in% c('Suppressed','Not applicable'))]
+dat_cad_deaths = dat_cad[,list(deaths=sum(as.integer(Value))),by=Time_Period]
+# Annualize deaths
+dat_cad_deaths[,`:=` (deaths = ifelse(Time_Period=='2020 (Jan to Sep)',deaths*(4/3),deaths),
+                        Time_Period = as.integer(str_replace_all(Time_Period,'[^0-9]','')) )]
+setnames(dat_cad_deaths,'Time_Period','year')
+# Pop from quarterly estimates  Table: 17-10-0009-01 (formerly CANSIM 051-0005) 
+dat_cad_pop = data.frame(year=c(2018,2019,2020),pop=c(37249240,37802043,38008005))
+dat_cad_deaths = merge(dat_cad_deaths,dat_cad_pop,by='year')
+dat_cad_deaths[,`:=` (dpc = deaths/(pop/1e5), region='CAD')]
+
+# US data: https://www.drugabuse.gov/drug-topics/trends-statistics/overdose-death-rates
+# Estimate that this year will be 27% higher: https://www.cdc.gov/nchs/nvss/vsrr/drug-overdose-data.htm
+dat_us_deaths = data.table(year=seq(2018,2020),deaths=c(46802,49860,49860*1.27),pop=c(327096265,329064917,331002651))
+dat_us_deaths[,`:=` (dpc = deaths/(pop/1e5), region='US')]
+dat_both_deaths = rbind(dat_cad_deaths, dat_us_deaths)
+
+# (i) Compare CAD & US
+gg_cad_comp = ggplot(dat_both_deaths,aes(x=as.character(year),y=dpc,fill=region)) + 
+    theme_bw() + 
+    geom_bar(color='black',stat='identity',position='dodge',width=0.65) + 
+    scale_fill_discrete(name='Country') + 
+    labs(y='Opioid deaths per 100K') + 
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=90))
+# (ii) Annual US Deaths
+gg_us_qtr = ggplot(dat_deaths[icd10=='all'],aes(x=as.Date(yqtr),y=4*dpc)) + geom_line() + 
+    theme_bw() + 
+    labs(y='Annualized deaths per 100K',subtitle='Quarterly US overdose deaths') + 
+    theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=90)) + 
+    scale_x_date(date_breaks='2 years',date_labels='%Y')
+gg_deaths_comp = plot_grid(gg_cad_comp,gg_us_qtr,nrow=1,align='hv',axis='tb')
+save_plot(file.path(dir_figures,'gg_deaths_comp.png'), gg_deaths_comp, base_height=4,base_width=10)
+
+
 ###################################
-# --- (4) DEATHS AND POLICIES --- #
+# --- (5) DEATHS AND POLICIES --- #
 
 # Calculate state-level pop
 dat_pop_state = dat_cdc[,list(pop=mean(pop)),by=list(state,yqtr)]
@@ -191,7 +232,8 @@ df_pct_policy = df_policy[mort=='Heroin' & policy!='Medicaid Expansion',list(pct
 gg_pct_policy = ggplot(df_pct_policy,aes(x=yqtr,y=pct,color=policy,shape=policy)) + 
     theme_bw() + geom_line() + geom_point() + 
     labs(y='% of states with policy') + 
-    theme(axis.title.x=element_blank())
+    theme(axis.title.x=element_blank()) + 
+    scale_color_discrete(name='Policy')
 save_plot(file.path(dir_figures,'gg_pct_policy.png'), gg_pct_policy, base_height=4,base_width=6)
 
 

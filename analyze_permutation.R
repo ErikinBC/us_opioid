@@ -82,6 +82,9 @@ save_plot(file.path(dir_figures,'gg_se_coef.png'),gg_se_coef,base_height=6,base_
 ################################
 # ----- (3) DO INFERENCE ----- #
 
+# We reject the null 37% of the time
+df_tab[,list(reject=mean(zscore > qnorm(0.95)),z=mean(zscore)),by=treatment]
+
 ttest_tab_zscore = df_tab[,list(mu=mean(zscore),lb=t.test(zscore)$conf.int[1],
                 ub=t.test(zscore)$conf.int[2]),by=list(outcome,treatment)]
 
