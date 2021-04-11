@@ -60,7 +60,7 @@ if (seed > 0) {
     print('Scrambling policy adoption date')
     alt_lst_tr = gsub('_tr','',list_treatment)
     dates_tr = data[,lapply(.SD,function(x) mean(x)),by=state,.SDcols=alt_lst_tr]
-    dates_tr = cbind(data.table(state=dates_tr$state),dates_tr[,lapply(.SD,function(x) sample(x)),.SDcols=alt_lst_tr])
+    dates_tr = cbind(data.table(state=sample(dates_tr$state,replace=F)),dates_tr[,-'state'])
     data = merge(data[,-alt_lst_tr,with=F],dates_tr,by='state')
     for (tr in list_treatment) {
         tr2 = gsub('_tr','',tr)
@@ -70,12 +70,10 @@ if (seed > 0) {
     print('Policy adoption will not be scrambled; seed==0')
 }
 
-
 # run weighted fixed-effects estimators
 covariates = c('p_female','p_age40_60','p_age60up','p_white',
                 'p_black','p_asian','p_hispanic',
                 'p_unemployed','p_poverty','n_resident')
-
 
 # run models across all DV + treatments
 list_out = list()

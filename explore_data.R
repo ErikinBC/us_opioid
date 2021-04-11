@@ -233,7 +233,8 @@ gg_pct_policy = ggplot(df_pct_policy,aes(x=yqtr,y=pct,color=policy,shape=policy)
     theme_bw() + geom_line() + geom_point() + 
     labs(y='% of states with policy') + 
     theme(axis.title.x=element_blank()) + 
-    scale_color_discrete(name='Policy')
+    scale_color_discrete(name='Policy') + 
+    guides(shape=FALSE)
 save_plot(file.path(dir_figures,'gg_pct_policy.png'), gg_pct_policy, base_height=4,base_width=6)
 
 
