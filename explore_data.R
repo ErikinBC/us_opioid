@@ -159,33 +159,37 @@ save_plot(file.path(dir_figures,'gg_growth_pct.png'), gg_growth_pct, base_height
 #################################
 # --- (4) COMPARE TO CANADA --- #
 
+# Pop from quarterly estimates  Table: 17-10-0009-01 (formerly CANSIM 051-0005), using Q4
+dat_cad_pop = data.table(year=seq(2016,2020),pop=c(36258726,36721242,37249240,37802043,38008005))
 # https://health-infobase.canada.ca/substance-related-harms/opioids-stimulants/graphs?index=395
-dat_cad = fread(file.path(dir_data,'cad-data','SubstanceHarmsData.csv'))
-dat_cad = dat_cad[!(Time_Period %in% c('By quarter','By year'))]
-dat_cad = dat_cad[Substance == 'Opioids' & Source == 'Deaths' & Unit=='Number']
-dat_cad = dat_cad[!(Value %in% c('Suppressed','Not applicable'))]
-dat_cad_deaths = dat_cad[,list(deaths=sum(as.integer(Value))),by=Time_Period]
-# Annualize deaths
-dat_cad_deaths[,`:=` (deaths = ifelse(Time_Period=='2020 (Jan to Sep)',deaths*(4/3),deaths),
-                        Time_Period = as.integer(str_replace_all(Time_Period,'[^0-9]','')) )]
-setnames(dat_cad_deaths,'Time_Period','year')
-# Pop from quarterly estimates  Table: 17-10-0009-01 (formerly CANSIM 051-0005) 
-dat_cad_pop = data.frame(year=c(2018,2019,2020),pop=c(37249240,37802043,38008005))
+# Currently 4395 deaths for 2020 until September, we can annualize and then get rate
+cr2020 = 4395*(4/3)/(38008005/1e5)
+dat_cad_deaths = data.table(year=seq(2016,2020),dpc=c(7.8,10.7,11.8,10.2,cr2020))
 dat_cad_deaths = merge(dat_cad_deaths,dat_cad_pop,by='year')
-dat_cad_deaths[,`:=` (dpc = deaths/(pop/1e5), region='CAD')]
+dat_cad_deaths[, `:=` (deaths = round((pop/1e5)*dpc), region='CAD')]
+
 
 # US data: https://www.drugabuse.gov/drug-topics/trends-statistics/overdose-death-rates
+#           https://www.drugabuse.gov/sites/default/files/Overdose_data_1999-2019.xlsx
 # Estimate that this year will be 27% higher: https://www.cdc.gov/nchs/nvss/vsrr/drug-overdose-data.htm
-dat_us_deaths = data.table(year=seq(2018,2020),deaths=c(46802,49860,49860*1.27),pop=c(327096265,329064917,331002651))
+# The following combination or ICD10 aligns with prescription opioids, synthetic opioids, and heroin from xlsx
+cn_opioid = c('opioids','methadone','synth','heroin')
+dat_us_deaths1 = dat_deaths[icd10 %in% cn_opioid,list(deaths=sum(deaths)),by=list(year)]
+dat_us_deaths1 = cbind(pop=c(323071342,325147121),dat_us_deaths1[year %in% c(2016,2017)])
+dat_us_deaths2 = data.table(year=seq(2018,2020),deaths=c(61306,64517,64517*1.27),
+                            pop=c(327096265,329064917,331002651))
+dat_us_deaths = rbind(dat_us_deaths1, dat_us_deaths2)
 dat_us_deaths[,`:=` (dpc = deaths/(pop/1e5), region='US')]
 dat_both_deaths = rbind(dat_cad_deaths, dat_us_deaths)
+dat_both_deaths[, year := ifelse(year == 2020,'2020*',as.character(year))]
 
 # (i) Compare CAD & US
-gg_cad_comp = ggplot(dat_both_deaths,aes(x=as.character(year),y=dpc,fill=region)) + 
+stit = 'Deaths include prescription & synthetic opioids and heroin\n*2020 based on extrapolation'
+gg_cad_comp = ggplot(dat_both_deaths,aes(x=year,y=dpc,fill=region)) + 
     theme_bw() + 
     geom_bar(color='black',stat='identity',position='dodge',width=0.65) + 
     scale_fill_discrete(name='Country') + 
-    labs(y='Opioid deaths per 100K') + 
+    labs(y='Opioid deaths per 100K',subtitle=stit) + 
     theme(axis.title.x=element_blank(),axis.text.x=element_text(angle=90))
 # (ii) Annual US Deaths
 gg_us_qtr = ggplot(dat_deaths[icd10=='all'],aes(x=as.Date(yqtr),y=4*dpc)) + geom_line() + 
