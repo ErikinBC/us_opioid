@@ -198,7 +198,8 @@ save_plot(file.path(dir_figures,'gg_comp_np.png'),gg_comp_np,
 # What is driving the small difference? Puerto Rico? Other subsets?
 
 # On average, the parallel trends assumption does not "seem" to be violated
-gg_erik_fig1 = ggplot(erik_np[time_id >= -12 & time_id<=12],aes(x=time_id,y=value,color=grp)) + 
+tmp_fig1 = erik_np[time_id >= -12 & time_id<=12]
+gg_erik_fig1 = ggplot(tmp_fig1,aes(x=time_id,y=value,color=grp)) + 
     theme_bw() + geom_point() + geom_line() + 
     labs(y='Average opioid mortality death (per 100K)',x='Quarters before and after policy') + 
     facet_wrap(~policy) + 
@@ -206,6 +207,17 @@ gg_erik_fig1 = ggplot(erik_np[time_id >= -12 & time_id<=12],aes(x=time_id,y=valu
     scale_color_discrete(name='Group',labels=c('Control','Treatment'))
 save_plot(file.path(dir_figures,'gg_erik_fig1.png'),gg_erik_fig1,
           base_height=5,base_width=10)
+
+# Do only for naloxone laws
+gg_naloxone_pt = ggplot(tmp_fig1[str_detect(policy,'Naloxone')],aes(x=time_id,y=value,color=grp)) + 
+    theme_bw() + geom_point() + geom_line() + 
+    labs(y='Average opioid mortality death (per 100K)',x='Quarters before and after policy') + 
+    geom_vline(xintercept=0) + facet_wrap(~policy) + 
+    scale_color_discrete(name='Group',labels=c('Control','Treatment')) + 
+    theme(legend.position=c(0.25,0.75))
+save_plot(file.path(dir_figures,'gg_naloxone_pt.png'),gg_naloxone_pt,
+          base_height=4,base_width=5)
+
 
 # --- (ii) COMPARE THE DISTRIBUTION OF GROWTH RATES --- #
 

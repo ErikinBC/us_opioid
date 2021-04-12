@@ -235,7 +235,7 @@ gg_pct_policy = ggplot(df_pct_policy,aes(x=yqtr,y=pct,color=policy,shape=policy)
     theme(axis.title.x=element_blank()) + 
     scale_color_discrete(name='Policy') + 
     guides(shape=FALSE)
-save_plot(file.path(dir_figures,'gg_pct_policy.png'), gg_pct_policy, base_height=4,base_width=6)
+save_plot(file.path(dir_figures,'gg_pct_policy.png'), gg_pct_policy, base_height=2.5,base_width=5)
 
 
 # --- (ii) DEATHS RATE THOSE WITH AND WITHOUT A POLICY --- #
@@ -300,3 +300,6 @@ gg_diff_policy = ggplot(df_comp_policy[p_active == 'Diff'],aes(x=yqtr,y=deaths_p
     geom_hline(yintercept=0,color='blue') + 
     scale_x_continuous(limits=c(2005,2019),breaks=seq(2006,2020,3))
 save_plot(file.path(dir_figures,'gg_diff_policy.png'), gg_diff_policy, base_height=12,base_width=15)
+
+# 2016Q3
+df_comp_policy[p_active == 'Diff' & lb>0 & mort=='All overdose' & policy == 'Naloxone Law' & yqtr>=2016][1:2,] %>% t

@@ -59,31 +59,35 @@ df_coef[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment,Lea
 
 se_tab_z = df_tab[,list(mu=mean(zscore),se=mean(se)),by=list(outcome,treatment,coef>0)]
 se_tab_z = se_tab_z[order(treatment,coef)]
-se_tab_z
+
+df_tab[,coef0 := ifelse(coef<0,'Coef<0','Coef>=0')]
+df_coef[,coef0 := ifelse(coef<0,'Coef<0','Coef>=0')]
 
 # Make figures showing the distribution of the standard error
-gg_se_tab = ggplot(df_tab,aes(x=se,fill=coef>0)) + 
+cn_lvl = c(naloxone_tr='Naloxone',goodsam_tr='Good Samaritan')
+gg_se_tab = ggplot(df_tab,aes(x=se,fill=coef0)) + 
     theme_bw() + 
-    geom_histogram(position='identity',alpha=0.4,bins=30,color='black') + 
-    scale_fill_discrete(name='Coefficient > 0') + 
+    stat_bin(aes(y=..density..), position='identity',alpha=0.4,bins=30,color='black') + 
+    scale_fill_manual(name='Coefficient',values=c('green','purple'),labels=c('<0','>0')) + 
+    facet_wrap('~treatment',labeller=labeller(treatment=cn_lvl)) + 
     labs(x='Standard error',y='Permutation frequency')
-save_plot(file.path(dir_figures,'gg_se_tab.png'),gg_se_tab,base_height=4,base_width=6)
+save_plot(file.path(dir_figures,'gg_se_tab.png'),gg_se_tab,base_height=3,base_width=6)
 
-
-gg_se_coef = ggplot(df_coef,aes(x=se,fill=coef>0)) + 
+fun_lead = function(x) { str_c('Lead: ',x) }
+gg_se_coef = ggplot(df_coef,aes(x=se,fill=coef0)) + 
     theme_bw() + 
-    facet_wrap('~Lead',labeller=label_both) + 
-    geom_histogram(position='identity',alpha=0.4,bins=30,color='black') + 
-    scale_fill_discrete(name='Coefficient > 0') + 
+    facet_wrap(~treatment+Lead,labeller=labeller(treatment=cn_lvl,Lead=fun_lead)) + 
+    stat_bin(aes(y=..density..), position='identity',alpha=0.4,bins=30,color='black') + 
+    scale_fill_manual(name='Coefficient',values=c('green','purple'),labels=c('<0','>0')) + 
     labs(x='Standard error',y='Permutation frequency')
-save_plot(file.path(dir_figures,'gg_se_coef.png'),gg_se_coef,base_height=6,base_width=10)
+save_plot(file.path(dir_figures,'gg_se_coef.png'),gg_se_coef,base_height=8,base_width=12)
 
 
 ################################
 # ----- (3) DO INFERENCE ----- #
 
 # We reject the null 37% of the time
-df_tab[,list(reject=mean(zscore > qnorm(0.95)),z=mean(zscore)),by=treatment]
+df_tab[,list(reject=mean(zscore > qnorm(0.975)),z=mean(zscore)),by=treatment]
 
 ttest_tab_zscore = df_tab[,list(mu=mean(zscore),lb=t.test(zscore)$conf.int[1],
                 ub=t.test(zscore)$conf.int[2]),by=list(outcome,treatment)]
@@ -102,7 +106,7 @@ gg_tab_zscore = ggplot(df_tab, aes(x=zscore,fill=treatment)) +
     geom_vline(xintercept=0) + 
     labs(y='Permutation frequency',x='Z-score') + 
     labs(subtitle='Solid lines show 95% CI of z-score mean\nDashed lines show Lee et. al estimate') + 
-    ggtitle('Meta-analysis distribution (randomized policy dates)') + 
+    # ggtitle('Meta-analysis distribution (randomized policy dates)') + 
     scale_x_continuous(limits=c(-xx,xx)) + 
     geom_vline(aes(xintercept=zscore,color=treatment),data=meta_pmatch,linetype=2)
 save_plot(file.path(dir_figures,'gg_tab_zscore.png'),gg_tab_zscore,base_height=4,base_width=6)
@@ -118,8 +122,7 @@ gg_coef_zscore = ggplot(df_coef, aes(x=zscore,fill=treatment)) +
     geom_vline(aes(xintercept=ub,color=treatment),data=ttest_df_zscore,linetype=1) + 
     geom_vline(xintercept=0) + 
     labs(y='Permutation frequency',x='Z-score') + 
-    labs(subtitle='Dashed lines show 95% CI of z-score mean') + 
-    ggtitle('Solid lines show 95% CI of z-score mean\nDashed lines show Lee et. al estimate') + 
+    labs(subtitle='Solid lines show 95% CI of z-score mean\nDashed lines show Lee et. al estimate') + 
     scale_x_continuous(limits=c(-xx,xx)) + 
     geom_vline(aes(xintercept=zscore,color=treatment),data=coef_pmatch,linetype=2)
 save_plot(file.path(dir_figures,'gg_coef_zscore.png'),gg_coef_zscore,base_height=8,base_width=16)
