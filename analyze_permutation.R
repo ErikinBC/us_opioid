@@ -18,7 +18,7 @@ nsim = max(as.integer(str_replace_all(fn_permute,'\\.csv|coef_pmatch_|tab_',''))
 cn_coef <- c('time_id','coef','se','lci','uci','outcome','treatment','seed_idx')
 holder_coef = list()
 holder_tab = list()
-for (i in as.character(seq(nsim))) {
+for (i in as.character(seq(0,nsim))) {
     fn_tab_i = file.path(dir_permute,str_c('tab_',i,'.csv'))
     fn_coef_i = file.path(dir_permute,str_c('coef_pmatch_',i,'.csv'))
     if (file.exists(fn_tab_i)) { holder_tab[[i]] = fread(fn_tab_i) }
@@ -51,6 +51,14 @@ meta_pmatch = meta_pmatch[treatment %in% treatment_list & outcome %in% depvars]
 meta_pmatch[, `:=` (coef=coef/3000, lci=lci/3000, uci=uci/3000)]
 meta_pmatch[, zscore := coef/se]
 
+# Estimates are close enough for seed 0 lines up with author's estimate
+cn1 = c('coef','treatment')
+merge(meta_pmatch[,cn1,with=F],df_tab[seed_idx == 0,cn1,with=F],by='treatment')
+cn2 = c('coef','treatment','Lead')
+merge(coef_pmatch[,cn2,with=F],df_coef[seed_idx == 0,cn2,with=F],by=c('treatment','Lead'))
+df_tab = df_tab[seed_idx>0]
+df_coef = df_coef[seed_idx>0]
+
 ############################################
 # ----- (2) ZSCORE SHOWS RIGHT SHIFT ----- #
 
@@ -68,7 +76,7 @@ pval_perm[,Lead := factor(Lead,c('REMA',1:12),c('REMA',str_c('Q',1:12)))]
 pval_perm[, fdr := p.adjust(pval,method='fdr')]
 pval_perm = melt(pval_perm,c('Lead','treatment'),c('pval','fdr'),'adj','pval')
 t1 = str_c(rep(names(cn_lvl),2),rep(c('pval','fdr'),each=2),sep='_')
-t2 = str_c(rep(cn_lvl,2),rep(c('(p-value)','(FDR)'),each=2),sep=' ')
+t2 = str_c(rep(cn_lvl,2),rep(c('(raw)','(FDR)'),each=2),sep=' ')
 pval_perm[, cc := factor(str_c(treatment,'_',adj),t1,t2)]
 pval_perm[2:3,] %>% t
 colz = rep(gg_color_hue(2),2)
@@ -78,14 +86,13 @@ stit = 'P-value is number of randomized coefficient greater than observed coeffi
 gg_pval_perm = ggplot(pval_perm,aes(x=Lead,y=pval,color=cc,shape=cc)) + 
     theme_bw() + geom_point(position=position_dodge(width=0.5)) + 
     labs(y='P-value',x='Estimator',subtitle=stit) + 
-    scale_color_manual(name='Policy (p-val method): ',values=colz) + 
-    scale_shape_manual(name='Policy (p-val method): ',values=shz) + 
+    scale_color_manual(name='Policy (p-value): ',values=colz) + 
+    scale_shape_manual(name='Policy (p-value): ',values=shz) + 
     theme(legend.position='bottom') + 
     scale_y_continuous(limits=c(0,1)) + 
     geom_hline(yintercept=0.05,linetype=2) + 
     guides(color=guide_legend(nrow=2,byrow=TRUE))
 save_plot(file.path(dir_figures,'gg_pval_perm.png'),gg_pval_perm,base_height=4,base_width=7)
-
 
 
 df_tab[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment)]
@@ -120,7 +127,7 @@ save_plot(file.path(dir_figures,'gg_se_coef.png'),gg_se_coef,base_height=8,base_
 # ----- (3) DO INFERENCE ----- #
 
 # We reject the null 37% of the time
-df_tab[,list(reject=mean(zscore > qnorm(0.975)),z=mean(zscore)),by=treatment]
+df_tab[,list(reject=mean(zscore > qnorm(0.975)),z=mean(zscore),coef=mean(coef)),by=treatment]
 
 ttest_tab_zscore = df_tab[,list(mu=mean(zscore),lb=t.test(zscore)$conf.int[1],
                 ub=t.test(zscore)$conf.int[2]),by=list(outcome,treatment)]
