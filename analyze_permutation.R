@@ -54,6 +54,40 @@ meta_pmatch[, zscore := coef/se]
 ############################################
 # ----- (2) ZSCORE SHOWS RIGHT SHIFT ----- #
 
+cn_lvl = c(naloxone_tr='Naloxone',goodsam_tr='Good Samaritan')
+
+# Even the coefficient is better behaved, it still is not that significant
+cn_match = c('outcome','treatment','coef')
+pval_tab = merge(df_tab[,cn_match,with=F],meta_pmatch[,cn_match,with=F],by=c(cn_match[1:2]))
+pval_tab_sum = pval_tab[,list(pos=mean(coef.x>0)-0.5,pval=(sum(coef.x > coef.y)+1)/(length(coef.x)+1) ),by=treatment]
+cn_match = c('Lead',cn_match)
+pval_coef = merge(df_coef[,cn_match,with=F],coef_pmatch[,cn_match,with=F],by=c(cn_match[1:3]))
+pval_coef_sum = pval_coef[,list(pos=mean(coef.x>0)-0.5,pval=(sum(coef.x > coef.y)+1)/(length(coef.x)+1)),by=list(Lead,treatment)][order(treatment)]
+pval_perm = rbind(cbind(Lead='REMA',pval_tab_sum),pval_coef_sum)
+pval_perm[,Lead := factor(Lead,c('REMA',1:12),c('REMA',str_c('Q',1:12)))]
+pval_perm[, fdr := p.adjust(pval,method='fdr')]
+pval_perm = melt(pval_perm,c('Lead','treatment'),c('pval','fdr'),'adj','pval')
+t1 = str_c(rep(names(cn_lvl),2),rep(c('pval','fdr'),each=2),sep='_')
+t2 = str_c(rep(cn_lvl,2),rep(c('(p-value)','(FDR)'),each=2),sep=' ')
+pval_perm[, cc := factor(str_c(treatment,'_',adj),t1,t2)]
+pval_perm[2:3,] %>% t
+colz = rep(gg_color_hue(2),2)
+shz = rep(c(19,8),each=2)
+
+stit = 'P-value is number of randomized coefficient greater than observed coefficient'
+gg_pval_perm = ggplot(pval_perm,aes(x=Lead,y=pval,color=cc,shape=cc)) + 
+    theme_bw() + geom_point(position=position_dodge(width=0.5)) + 
+    labs(y='P-value',x='Estimator',subtitle=stit) + 
+    scale_color_manual(name='Policy (p-val method): ',values=colz) + 
+    scale_shape_manual(name='Policy (p-val method): ',values=shz) + 
+    theme(legend.position='bottom') + 
+    scale_y_continuous(limits=c(0,1)) + 
+    geom_hline(yintercept=0.05,linetype=2) + 
+    guides(color=guide_legend(nrow=2,byrow=TRUE))
+save_plot(file.path(dir_figures,'gg_pval_perm.png'),gg_pval_perm,base_height=4,base_width=7)
+
+
+
 df_tab[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment)]
 df_coef[,list(coef=mean(coef),zscore=mean(zscore)),by=list(outcome,treatment,Lead)]
 
@@ -64,7 +98,6 @@ df_tab[,coef0 := ifelse(coef<0,'Coef<0','Coef>=0')]
 df_coef[,coef0 := ifelse(coef<0,'Coef<0','Coef>=0')]
 
 # Make figures showing the distribution of the standard error
-cn_lvl = c(naloxone_tr='Naloxone',goodsam_tr='Good Samaritan')
 gg_se_tab = ggplot(df_tab,aes(x=se,fill=coef0)) + 
     theme_bw() + 
     stat_bin(aes(y=..density..), position='identity',alpha=0.4,bins=30,color='black') + 
